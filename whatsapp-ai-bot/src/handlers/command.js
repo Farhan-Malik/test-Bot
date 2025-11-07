@@ -1,4 +1,3 @@
-
 const path = require('path');
 const fs = require('fs-extra');
 
@@ -6,30 +5,30 @@ class CommandHandler {
     constructor(bot) {
         this.bot = bot;
         this.commands = new Map();
-        this.loadCommands();
+        this.loadAllCommands();
     }
 
-    loadCommands() {
+    loadAllCommands() {
         try {
             const commandsDir = path.join(__dirname, '../commands');
-            this.loadCommandCategory(commandsDir);
+            this.loadCommandsFromDirectory(commandsDir);
             this.bot.logger.info(`📦 Loaded ${this.commands.size} commands`);
         } catch (error) {
             this.bot.logger.error('Error loading commands:', error);
         }
     }
 
-    loadCommandCategory(categoryPath) {
-        if (!fs.existsSync(categoryPath)) return;
+    loadCommandsFromDirectory(dir) {
+        if (!fs.existsSync(dir)) return;
 
-        const items = fs.readdirSync(categoryPath);
+        const items = fs.readdirSync(dir);
         
         for (const item of items) {
-            const itemPath = path.join(categoryPath, item);
+            const itemPath = path.join(dir, item);
             const stat = fs.statSync(itemPath);
 
             if (stat.isDirectory()) {
-                this.loadCommandCategory(itemPath);
+                this.loadCommandsFromDirectory(itemPath);
             } else if (item.endsWith('.js')) {
                 try {
                     const commandModule = require(itemPath);
@@ -44,23 +43,16 @@ class CommandHandler {
         }
     }
 
-    async handleMessage(m) {
+    async handleMessage(m, sock) {
         if (!m.messages || m.messages.length === 0) return;
 
         const message = m.messages[0];
         const text = this.extractText(message);
         if (!text) return;
 
-        const sock = this.bot.getSock();
-        if (!sock) return;
-
         // Check for command prefix
         const prefix = this.getPrefix(text);
-        if (!prefix) {
-            // Handle AI conversation (non-command messages)
-            await this.handleAIConversation(message, text, sock);
-            return;
-        }
+        if (!prefix) return;
 
         const commandText = text.slice(prefix.length).trim();
         const [commandName, ...args] = commandText.split(' ');
@@ -78,7 +70,7 @@ class CommandHandler {
             }
         } else {
             await sock.sendMessage(message.key.remoteJid, {
-                text: `❌ Command not found. Use .help to see available commands.`
+                text: `❌ Command "${commandName}" not found. Use .help to see available commands.`
             });
         }
     }
@@ -91,53 +83,8 @@ class CommandHandler {
     }
 
     getPrefix(text) {
-        const prefixes = this.bot.config.handlers || ['.', '!', '/'];
+        const prefixes = this.bot.config?.handlers || ['.', '!', '/'];
         return prefixes.find(prefix => text.startsWith(prefix));
-    }
-
-    async handleAIConversation(message, text, sock) {
-        // Only respond to direct messages or when mentioned in groups
-        const isGroup = message.key.remoteJid.endsWith('@g.us');
-        const isMentioned = isGroup && 
-            message.message?.extendedTextMessage?.contextInfo?.mentionedJid?.includes(
-                this.bot.getSock().user.id.split(':')[0] + '@s.whatsapp.net'
-            );
-
-        if (!isGroup || isMentioned) {
-            // Use AI to generate response
-            if (this.bot.aiProviders.chatgpt) {
-                await this.generateAIResponse(message, text, sock, 'chatgpt');
-            }
-        }
-    }
-
-    async generateAIResponse(message, text, sock, provider = 'chatgpt') {
-        try {
-            const ai = this.bot.aiProviders[provider];
-            if (!ai) return;
-
-            let response;
-            if (provider === 'chatgpt') {
-                const completion = await ai.chat.completions.create({
-                    model: "gpt-4",
-                    messages: [
-                        { role: "system", content: "You are a helpful WhatsApp assistant. Keep responses concise and friendly." },
-                        { role: "user", content: text }
-                    ],
-                    max_tokens: 500
-                });
-                response = completion.choices[0].message.content;
-            }
-
-            if (response) {
-                await sock.sendMessage(message.key.remoteJid, { text: response });
-            }
-        } catch (error) {
-            this.bot.logger.error('AI response error:', error);
-            await sock.sendMessage(message.key.remoteJid, {
-                text: '❌ Sorry, I encountered an error processing your message.'
-            });
-        }
     }
 }
 

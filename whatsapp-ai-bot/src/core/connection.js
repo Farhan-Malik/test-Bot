@@ -1,4 +1,3 @@
-
 const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const path = require('path');
@@ -17,7 +16,7 @@ class ConnectionHandler {
 
             this.sock = makeWASocket({
                 version,
-                logger: pino({ level: this.bot.logger.level }),
+                logger: pino({ level: 'silent' }), // Silent for cleaner output
                 printQRInTerminal: true,
                 auth: state,
                 markOnlineOnConnect: false,
@@ -56,7 +55,7 @@ class ConnectionHandler {
 
         // Handle incoming messages
         this.sock.ev.on('messages.upsert', async (m) => {
-            await this.bot.commandHandler.handleMessage(m);
+            await this.bot.messageHandler.processMessage(m.messages[0], this.sock);
         });
     }
 
@@ -64,11 +63,15 @@ class ConnectionHandler {
         const botId = this.sock.user.id.split(':')[0] + '@s.whatsapp.net';
         try {
             await this.sock.sendMessage(botId, { 
-                text: '🤖 *WhatsApp AI Bot Started!*\n\nUse .help to see available commands.' 
+                text: `🤖 *WhatsApp AI Bot Started!*\n\nAvailable AI Providers: ${Object.keys(this.bot.aiProviders).join(', ') || 'None'}\n\nUse .help to see available commands.` 
             });
         } catch (error) {
             this.bot.logger.warn('Could not send startup message:', error.message);
         }
+    }
+
+    setSock(sock) {
+        this.sock = sock;
     }
 }
 
